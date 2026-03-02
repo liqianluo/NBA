@@ -19,7 +19,7 @@
 | 层次 | 技术 |
 |------|------|
 | 后端框架 | Node.js + Express 5 |
-| 数据库 | SQLite（开发）/ MySQL 5.7（生产） |
+| 数据库 | MySQL 5.7+ |
 | 定时任务 | node-cron |
 | HTTP 请求 | axios |
 | Excel 导出 | exceljs |
