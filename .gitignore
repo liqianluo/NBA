@@ -1,8 +1,7 @@
 node_modules/
 dist/
 *.log
-.env
-!.env.example
+# .env 已纳入版本管理，部署前请修改其中的数据库配置
 .env.local
 backend/data/*.db
 backend/data/*.db-shm
