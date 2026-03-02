@@ -1,12 +1,12 @@
 const axios = require('axios');
 const { buildHeaders } = require('../utils/signature');
-const db = require('../models/database');
+const db = require('../models/dbAdapter');
 
 /**
  * 获取当前 API 配置
  */
-function getConfig() {
-  const config = db.prepare('SELECT * FROM api_config ORDER BY id DESC LIMIT 1').get();
+async function getConfig() {
+  const config = await db.get('SELECT * FROM api_config ORDER BY id DESC LIMIT 1');
   if (!config) throw new Error('API 配置未设置，请先配置 API 信息');
   return config;
 }
@@ -15,7 +15,7 @@ function getConfig() {
  * 发起 API 请求
  */
 async function request(path, params = {}) {
-  const config = getConfig();
+  const config = await getConfig();
   const baseUrl = config.base_url.replace(/\/$/, '');
   const headers = buildHeaders(config.api_key, config.private_key, params);
 
@@ -34,7 +34,7 @@ async function request(path, params = {}) {
  * Ping 测试 - 查询调用量接口
  */
 async function ping() {
-  const config = getConfig();
+  const config = await getConfig();
   const baseUrl = config.base_url.replace(/\/$/, '');
   const headers = buildHeaders(config.api_key, config.private_key, {});
   const url = `${baseUrl}/firo/basic/usage/remaining`;

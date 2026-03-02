@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const apiService = require('../services/apiService');
-const db = require('../models/database');
+const db = require('../models/dbAdapter');
 
 // 获取今日直播赛事列表（文字战况直播）
 router.get('/live', async (req, res) => {
@@ -25,8 +25,10 @@ router.get('/schedule', async (req, res) => {
     // 保存查询记录
     try {
       const matchCount = Array.isArray(result.data) ? result.data.length : 0;
-      db.prepare('INSERT INTO schedule_records (query_date, raw_data, match_count) VALUES (?, ?, ?)')
-        .run(queryDate, JSON.stringify(result), matchCount);
+      await db.run(
+        'INSERT INTO schedule_records (query_date, raw_data, match_count) VALUES (?, ?, ?)',
+        [queryDate, JSON.stringify(result), matchCount]
+      );
     } catch (dbError) {
       console.error('Failed to save schedule record:', dbError.message);
     }

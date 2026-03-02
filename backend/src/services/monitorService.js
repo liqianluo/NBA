@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const db = require('../models/database');
+const db = require('../models/dbAdapter');
 const apiService = require('./apiService');
 
 // 存储活跃的定时任务
@@ -10,7 +10,7 @@ const activeTasks = new Map();
  */
 async function executeMonitorQuery(taskId, matchId) {
   try {
-    const task = db.prepare('SELECT * FROM monitor_tasks WHERE id = ?').get(taskId);
+    const task = await db.get('SELECT * FROM monitor_tasks WHERE id = ?', [taskId]);
     if (!task || task.status !== 'running') {
       stopMonitor(taskId);
       return;
@@ -20,7 +20,6 @@ async function executeMonitorQuery(taskId, matchId) {
     const today = new Date().toISOString().split('T')[0];
     const liveData = await apiService.getBasketballLive(task.match_date || today);
 
-    let matchData = null;
     let matchStatusName = '未知';
     let homeScore = '';
     let awayScore = '';
@@ -32,7 +31,6 @@ async function executeMonitorQuery(taskId, matchId) {
     if (liveData && liveData.data && liveData.data.matches) {
       const match = liveData.data.matches.find(m => String(m.matchId) === String(matchId));
       if (match) {
-        matchData = match;
         if (match.matchInfo) {
           matchStatusName = match.matchInfo.matchStatusName || '未知';
           matchStatus = match.matchInfo.matchStatus || '';
@@ -43,42 +41,32 @@ async function executeMonitorQuery(taskId, matchId) {
           }
           sectionsData = match.matchInfo.sectionsNos || '';
         }
-        if (match.teamStats) {
-          teamStats = JSON.stringify(match.teamStats);
-        }
-        if (match.playerStats) {
-          playerStats = JSON.stringify(match.playerStats);
-        }
+        if (match.teamStats) teamStats = JSON.stringify(match.teamStats);
+        if (match.playerStats) playerStats = JSON.stringify(match.playerStats);
       }
     }
 
     // 保存记录
-    db.prepare(`
-      INSERT INTO monitor_records 
-      (task_id, match_id, record_type, raw_data, match_status, match_status_name, home_score, away_score, sections_data, team_stats, player_stats)
-      VALUES (?, ?, 'live', ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      taskId,
-      matchId,
-      JSON.stringify(liveData),
-      matchStatus,
-      matchStatusName,
-      homeScore,
-      awayScore,
-      sectionsData,
-      teamStats,
-      playerStats
+    await db.run(
+      `INSERT INTO monitor_records
+       (task_id, match_id, record_type, raw_data, match_status, match_status_name, home_score, away_score, sections_data, team_stats, player_stats)
+       VALUES (?, ?, 'live', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [taskId, matchId, JSON.stringify(liveData), matchStatus, matchStatusName, homeScore, awayScore, sectionsData, teamStats, playerStats]
     );
 
     // 更新任务状态
-    db.prepare('UPDATE monitor_tasks SET match_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(matchStatusName, taskId);
+    await db.run(
+      'UPDATE monitor_tasks SET match_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [matchStatusName, taskId]
+    );
 
     // 如果比赛已结束，自动停止监控
     const endStatuses = ['6', '7', '8', 'Finished', 'Closed'];
     if (endStatuses.includes(matchStatus) || matchStatusName.includes('结束') || matchStatusName.includes('完场')) {
-      db.prepare('UPDATE monitor_tasks SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?')
-        .run('finished', taskId);
+      await db.run(
+        'UPDATE monitor_tasks SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?',
+        ['finished', taskId]
+      );
       stopMonitor(taskId);
       console.log(`Task ${taskId} finished - match ended`);
     }
@@ -86,12 +74,12 @@ async function executeMonitorQuery(taskId, matchId) {
     console.log(`Monitor query executed for task ${taskId}, match ${matchId}: ${matchStatusName}`);
   } catch (error) {
     console.error(`Monitor query error for task ${taskId}:`, error.message);
-    // 记录错误
     try {
-      db.prepare(`
-        INSERT INTO monitor_records (task_id, match_id, record_type, raw_data, match_status_name)
-        VALUES (?, ?, 'error', ?, ?)
-      `).run(taskId, matchId, JSON.stringify({ error: error.message }), '查询失败: ' + error.message);
+      await db.run(
+        `INSERT INTO monitor_records (task_id, match_id, record_type, raw_data, match_status_name)
+         VALUES (?, ?, 'error', ?, ?)`,
+        [taskId, matchId, JSON.stringify({ error: error.message }), '查询失败: ' + error.message]
+      );
     } catch (dbError) {
       console.error('Failed to save error record:', dbError.message);
     }
@@ -101,8 +89,8 @@ async function executeMonitorQuery(taskId, matchId) {
 /**
  * 启动监控任务
  */
-function startMonitor(taskId) {
-  const task = db.prepare('SELECT * FROM monitor_tasks WHERE id = ?').get(taskId);
+async function startMonitor(taskId) {
+  const task = await db.get('SELECT * FROM monitor_tasks WHERE id = ?', [taskId]);
   if (!task) throw new Error('任务不存在');
   if (activeTasks.has(taskId)) {
     console.log(`Task ${taskId} already running`);
@@ -138,11 +126,14 @@ function stopMonitor(taskId) {
 /**
  * 恢复所有运行中的任务（服务重启时）
  */
-function restoreRunningTasks() {
-  const runningTasks = db.prepare('SELECT * FROM monitor_tasks WHERE status = ?').all('running');
+async function restoreRunningTasks() {
+  const runningTasks = await db.all(
+    'SELECT * FROM monitor_tasks WHERE status = ?',
+    ['running']
+  );
   for (const task of runningTasks) {
     try {
-      startMonitor(task.id);
+      await startMonitor(task.id);
     } catch (error) {
       console.error(`Failed to restore task ${task.id}:`, error.message);
     }

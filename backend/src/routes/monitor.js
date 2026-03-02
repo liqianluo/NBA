@@ -1,18 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../models/database');
+const db = require('../models/dbAdapter');
 const monitorService = require('../services/monitorService');
 
 // 获取所有监控任务
-router.get('/tasks', (req, res) => {
+router.get('/tasks', async (req, res) => {
   try {
-    const tasks = db.prepare(`
-      SELECT t.*, 
+    const tasks = await db.all(`
+      SELECT t.*,
         (SELECT COUNT(*) FROM monitor_records r WHERE r.task_id = t.id) as record_count,
         (SELECT queried_at FROM monitor_records r WHERE r.task_id = t.id ORDER BY id DESC LIMIT 1) as last_queried_at
-      FROM monitor_tasks t 
+      FROM monitor_tasks t
       ORDER BY t.created_at DESC
-    `).all();
+    `);
 
     const activeTasks = monitorService.getActiveTasks();
     const tasksWithStatus = tasks.map(t => ({
@@ -27,7 +27,7 @@ router.get('/tasks', (req, res) => {
 });
 
 // 创建监控任务
-router.post('/tasks', (req, res) => {
+router.post('/tasks', async (req, res) => {
   try {
     const { match_id, match_name, home_team, away_team, league_name, match_date, match_time, interval_minutes } = req.body;
     if (!match_id || !match_name) {
@@ -35,17 +35,21 @@ router.post('/tasks', (req, res) => {
     }
 
     // 检查是否已有相同赛事的运行中任务
-    const existing = db.prepare('SELECT id FROM monitor_tasks WHERE match_id = ? AND status = ?').get(match_id, 'running');
+    const existing = await db.get(
+      'SELECT id FROM monitor_tasks WHERE match_id = ? AND status = ?',
+      [match_id, 'running']
+    );
     if (existing) {
       return res.status(400).json({ success: false, message: '该赛事已有正在运行的监控任务' });
     }
 
-    const result = db.prepare(`
-      INSERT INTO monitor_tasks (match_id, match_name, home_team, away_team, league_name, match_date, match_time, interval_minutes, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running')
-    `).run(match_id, match_name, home_team || '', away_team || '', league_name || '', match_date || '', match_time || '', interval_minutes || 5);
+    const result = await db.run(
+      `INSERT INTO monitor_tasks (match_id, match_name, home_team, away_team, league_name, match_date, match_time, interval_minutes, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running')`,
+      [match_id, match_name, home_team || '', away_team || '', league_name || '', match_date || '', match_time || '', interval_minutes || 5]
+    );
 
-    const taskId = result.lastInsertRowid;
+    const taskId = result.lastInsertId;
 
     // 启动监控
     monitorService.startMonitor(taskId);
@@ -57,9 +61,9 @@ router.post('/tasks', (req, res) => {
 });
 
 // 获取单个任务详情
-router.get('/tasks/:id', (req, res) => {
+router.get('/tasks/:id', async (req, res) => {
   try {
-    const task = db.prepare('SELECT * FROM monitor_tasks WHERE id = ?').get(req.params.id);
+    const task = await db.get('SELECT * FROM monitor_tasks WHERE id = ?', [req.params.id]);
     if (!task) return res.status(404).json({ success: false, message: '任务不存在' });
 
     const activeTasks = monitorService.getActiveTasks();
@@ -70,15 +74,17 @@ router.get('/tasks/:id', (req, res) => {
 });
 
 // 停止监控任务
-router.put('/tasks/:id/stop', (req, res) => {
+router.put('/tasks/:id/stop', async (req, res) => {
   try {
     const taskId = parseInt(req.params.id);
-    const task = db.prepare('SELECT * FROM monitor_tasks WHERE id = ?').get(taskId);
+    const task = await db.get('SELECT * FROM monitor_tasks WHERE id = ?', [taskId]);
     if (!task) return res.status(404).json({ success: false, message: '任务不存在' });
 
     monitorService.stopMonitor(taskId);
-    db.prepare('UPDATE monitor_tasks SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run('stopped', taskId);
+    await db.run(
+      'UPDATE monitor_tasks SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ['stopped', taskId]
+    );
 
     res.json({ success: true, message: '监控已停止' });
   } catch (error) {
@@ -87,18 +93,20 @@ router.put('/tasks/:id/stop', (req, res) => {
 });
 
 // 继续监控任务
-router.put('/tasks/:id/resume', (req, res) => {
+router.put('/tasks/:id/resume', async (req, res) => {
   try {
     const taskId = parseInt(req.params.id);
-    const task = db.prepare('SELECT * FROM monitor_tasks WHERE id = ?').get(taskId);
+    const task = await db.get('SELECT * FROM monitor_tasks WHERE id = ?', [taskId]);
     if (!task) return res.status(404).json({ success: false, message: '任务不存在' });
 
     if (task.status === 'finished') {
       return res.status(400).json({ success: false, message: '赛事已结束，无法继续监控' });
     }
 
-    db.prepare('UPDATE monitor_tasks SET status = ?, stopped_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run('running', taskId);
+    await db.run(
+      'UPDATE monitor_tasks SET status = ?, stopped_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ['running', taskId]
+    );
     monitorService.startMonitor(taskId);
 
     res.json({ success: true, message: '监控已恢复' });
@@ -107,29 +115,33 @@ router.put('/tasks/:id/resume', (req, res) => {
   }
 });
 
-// 删除任务（按日期范围）
-router.delete('/tasks', (req, res) => {
+// 删除任务（按日期范围 或 按 ID 列表）
+router.delete('/tasks', async (req, res) => {
   try {
     const { startDate, endDate, taskIds } = req.body;
 
     if (taskIds && Array.isArray(taskIds)) {
-      // 按 ID 删除
       for (const id of taskIds) {
         monitorService.stopMonitor(id);
-        db.prepare('DELETE FROM monitor_records WHERE task_id = ?').run(id);
-        db.prepare('DELETE FROM monitor_tasks WHERE id = ?').run(id);
+        await db.run('DELETE FROM monitor_records WHERE task_id = ?', [id]);
+        await db.run('DELETE FROM monitor_tasks WHERE id = ?', [id]);
       }
       return res.json({ success: true, message: `已删除 ${taskIds.length} 个任务` });
     }
 
     if (startDate && endDate) {
-      // 按日期范围删除
-      const tasks = db.prepare('SELECT id FROM monitor_tasks WHERE DATE(created_at) BETWEEN ? AND ?').all(startDate, endDate);
+      const tasks = await db.all(
+        'SELECT id FROM monitor_tasks WHERE DATE(created_at) BETWEEN ? AND ?',
+        [startDate, endDate]
+      );
       for (const task of tasks) {
         monitorService.stopMonitor(task.id);
-        db.prepare('DELETE FROM monitor_records WHERE task_id = ?').run(task.id);
+        await db.run('DELETE FROM monitor_records WHERE task_id = ?', [task.id]);
       }
-      const result = db.prepare('DELETE FROM monitor_tasks WHERE DATE(created_at) BETWEEN ? AND ?').run(startDate, endDate);
+      const result = await db.run(
+        'DELETE FROM monitor_tasks WHERE DATE(created_at) BETWEEN ? AND ?',
+        [startDate, endDate]
+      );
       return res.json({ success: true, message: `已删除 ${result.changes} 个任务` });
     }
 
@@ -140,12 +152,12 @@ router.delete('/tasks', (req, res) => {
 });
 
 // 删除单个任务
-router.delete('/tasks/:id', (req, res) => {
+router.delete('/tasks/:id', async (req, res) => {
   try {
     const taskId = parseInt(req.params.id);
     monitorService.stopMonitor(taskId);
-    db.prepare('DELETE FROM monitor_records WHERE task_id = ?').run(taskId);
-    db.prepare('DELETE FROM monitor_tasks WHERE id = ?').run(taskId);
+    await db.run('DELETE FROM monitor_records WHERE task_id = ?', [taskId]);
+    await db.run('DELETE FROM monitor_tasks WHERE id = ?', [taskId]);
     res.json({ success: true, message: '任务已删除' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -153,22 +165,24 @@ router.delete('/tasks/:id', (req, res) => {
 });
 
 // 获取任务的监控记录
-router.get('/tasks/:id/records', (req, res) => {
+router.get('/tasks/:id/records', async (req, res) => {
   try {
     const { page = 1, pageSize = 20 } = req.query;
-    const offset = (page - 1) * pageSize;
+    const offset = (parseInt(page) - 1) * parseInt(pageSize);
 
-    const total = db.prepare('SELECT COUNT(*) as count FROM monitor_records WHERE task_id = ?').get(req.params.id);
-    const records = db.prepare(`
-      SELECT * FROM monitor_records WHERE task_id = ? 
-      ORDER BY queried_at DESC 
-      LIMIT ? OFFSET ?
-    `).all(req.params.id, parseInt(pageSize), parseInt(offset));
+    const totalRow = await db.get(
+      'SELECT COUNT(*) as count FROM monitor_records WHERE task_id = ?',
+      [req.params.id]
+    );
+    const records = await db.all(
+      'SELECT * FROM monitor_records WHERE task_id = ? ORDER BY queried_at DESC LIMIT ? OFFSET ?',
+      [req.params.id, parseInt(pageSize), offset]
+    );
 
     res.json({
       success: true,
       data: records,
-      total: total.count,
+      total: totalRow ? totalRow.count : 0,
       page: parseInt(page),
       pageSize: parseInt(pageSize)
     });
@@ -181,10 +195,13 @@ router.get('/tasks/:id/records', (req, res) => {
 router.get('/tasks/:id/export', async (req, res) => {
   try {
     const ExcelJS = require('exceljs');
-    const task = db.prepare('SELECT * FROM monitor_tasks WHERE id = ?').get(req.params.id);
+    const task = await db.get('SELECT * FROM monitor_tasks WHERE id = ?', [req.params.id]);
     if (!task) return res.status(404).json({ success: false, message: '任务不存在' });
 
-    const records = db.prepare('SELECT * FROM monitor_records WHERE task_id = ? ORDER BY queried_at ASC').all(req.params.id);
+    const records = await db.all(
+      'SELECT * FROM monitor_records WHERE task_id = ? ORDER BY queried_at ASC',
+      [req.params.id]
+    );
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'NBA Monitor';
@@ -223,7 +240,6 @@ router.get('/tasks/:id/export', async (req, res) => {
     ];
 
     records.forEach((record, index) => {
-      // 解析各节比分
       let sectionsText = '';
       try {
         const sections = JSON.parse(record.sections_data || '[]');
@@ -247,7 +263,7 @@ router.get('/tasks/:id/export', async (req, res) => {
     });
 
     // 球员统计 Sheet（取最后一条有球员数据的记录）
-    const lastRecordWithPlayers = records.reverse().find(r => r.player_stats);
+    const lastRecordWithPlayers = [...records].reverse().find(r => r.player_stats);
     if (lastRecordWithPlayers) {
       try {
         const playerData = JSON.parse(lastRecordWithPlayers.player_stats);
@@ -299,7 +315,6 @@ router.get('/tasks/:id/export', async (req, res) => {
       }
     }
 
-    // 设置响应头
     const fileName = encodeURIComponent(`${task.match_name}_监控记录.xlsx`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${fileName}`);

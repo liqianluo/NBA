@@ -1,7 +1,9 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const monitorService = require('./services/monitorService');
+const fs = require('fs');
+const { dbReady } = require('./models/database');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -27,7 +29,6 @@ app.get('/api/health', (req, res) => {
 
 // 静态文件服务（前端构建产物）
 const frontendDist = path.join(__dirname, '../../frontend/dist');
-const fs = require('fs');
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   app.get('/{*path}', (req, res) => {
@@ -43,15 +44,23 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: '服务器内部错误: ' + err.message });
 });
 
-// 启动服务
-app.listen(PORT, () => {
-  console.log(`NBA Monitor Server running on port ${PORT}`);
-  // 恢复运行中的监控任务
-  try {
-    monitorService.restoreRunningTasks();
-  } catch (error) {
-    console.error('Failed to restore tasks:', error.message);
-  }
-});
+// 等待数据库就绪后再启动 HTTP 服务
+dbReady
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`NBA Monitor Server running on port ${PORT}`);
+      // 恢复运行中的监控任务
+      try {
+        const monitorService = require('./services/monitorService');
+        monitorService.restoreRunningTasks();
+      } catch (error) {
+        console.error('Failed to restore tasks:', error.message);
+      }
+    });
+  })
+  .catch((err) => {
+    console.error('[FATAL] 数据库初始化失败，服务无法启动:', err.message);
+    process.exit(1);
+  });
 
 module.exports = app;
