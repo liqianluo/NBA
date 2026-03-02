@@ -27,7 +27,11 @@
 | UI 组件库 | Ant Design 6 |
 | 路由 | React Router 7 |
 
-## 快速开始
+## 部署
+
+- [CentOS 部署教程](./DEPLOY_CENTOS.md)
+
+## 快速开始（本地开发）
 
 ### 1. 安装依赖
 
