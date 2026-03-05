@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Button, Table, Tag, Space, Spin, Descriptions, Tabs, Row, Col, message, Popconfirm } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, StopOutlined, PlayCircleOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -18,13 +18,28 @@ export default function MonitorPage() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsUpdatedAt, setStatsUpdatedAt] = useState(null);
   const [activeTab, setActiveTab] = useState('players');
+  // 定时器 ref，方便在任意位置清除
+  const intervalRef = useRef(null);
+
+  const stopAutoRefresh = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
 
   const fetchTask = useCallback(async () => {
     try {
       const res = await request.get(`/monitor/tasks/${taskId}`);
-      if (res.success) setTask(res.data);
+      if (res.success) {
+        setTask(res.data);
+        // 监控已停止或赛事已结束 → 关闭自动刷新
+        if (res.data.status !== 'running') {
+          stopAutoRefresh();
+        }
+      }
     } catch (e) {}
-  }, [taskId]);
+  }, [taskId, stopAutoRefresh]);
 
   const fetchRecords = useCallback(async (page, pageSize) => {
     setRecordsLoading(true);
@@ -59,14 +74,14 @@ export default function MonitorPage() {
     fetchTask();
     fetchRecords(1, 20);
     fetchLatestStats();
-    // 每 60 秒自动刷新一次
-    const interval = setInterval(() => {
-      fetchTask();
+    // 每 60 秒自动刷新一次（仅在监控运行中时有效）
+    intervalRef.current = setInterval(() => {
+      fetchTask();        // fetchTask 内部会判断状态，非 running 时自动停止定时器
       fetchRecords(1, 20);
       fetchLatestStats();
     }, 60000);
-    return () => clearInterval(interval);
-  }, [taskId, fetchTask, fetchRecords, fetchLatestStats]);
+    return () => stopAutoRefresh();
+  }, [taskId, fetchTask, fetchRecords, fetchLatestStats, stopAutoRefresh]);
 
   const handleStop = async () => {
     try {
@@ -78,7 +93,19 @@ export default function MonitorPage() {
   const handleResume = async () => {
     try {
       const res = await request.put(`/monitor/tasks/${taskId}/resume`);
-      if (res.success) { message.success('监控已恢复'); fetchTask(); }
+      if (res.success) {
+        message.success('监控已恢复');
+        fetchTask();
+        fetchRecords(1, 20);
+        fetchLatestStats();
+        // 重新启动自动刷新定时器
+        stopAutoRefresh();
+        intervalRef.current = setInterval(() => {
+          fetchTask();
+          fetchRecords(1, 20);
+          fetchLatestStats();
+        }, 60000);
+      }
     } catch (e) {}
   };
 
