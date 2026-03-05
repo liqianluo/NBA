@@ -7,6 +7,8 @@ const activeTasks = new Map();
 
 /**
  * 执行一次监控查询并保存记录
+ * 说明：始终只使用 bb-text/live 接口获取数据（含实时比分、球员统计）。
+ *       live 接口对当天进行中和已结束的比赛均有数据，是监控的唯一数据源。
  */
 async function executeMonitorQuery(taskId, matchId) {
   try {
@@ -16,9 +18,7 @@ async function executeMonitorQuery(taskId, matchId) {
       return;
     }
 
-    // 查询文字战况直播（包含比赛状态、比分、球队统计、球员统计）
-    const today = new Date().toISOString().split('T')[0];
-    const liveData = await apiService.getBasketballLive(task.match_date || today);
+    const matchDate = task.match_date || new Date().toISOString().split('T')[0];
 
     let matchStatusName = '未知';
     let homeScore = '';
@@ -28,22 +28,29 @@ async function executeMonitorQuery(taskId, matchId) {
     let playerStats = '';
     let matchStatus = '';
 
-    if (liveData && liveData.data && liveData.data.matches) {
-      const match = liveData.data.matches.find(m => String(m.matchId) === String(matchId));
-      if (match) {
-        if (match.matchInfo) {
-          matchStatusName = match.matchInfo.matchStatusName || '未知';
-          matchStatus = match.matchInfo.matchStatus || '';
-          if (match.matchInfo.sectionsNo999) {
-            const scores = match.matchInfo.sectionsNo999.split(':');
-            awayScore = scores[0] || '';
-            homeScore = scores[1] || '';
-          }
-          sectionsData = match.matchInfo.sectionsNos || '';
+    // 从 bb-text/live 接口获取数据
+    const liveData = await apiService.getBasketballLive(matchDate);
+    const liveMatches = liveData && liveData.data && liveData.data.matches
+      ? liveData.data.matches : [];
+    const match = liveMatches.find(m => String(m.matchId) === String(matchId));
+
+    if (match) {
+      if (match.matchInfo) {
+        matchStatusName = match.matchInfo.matchStatusName || '未知';
+        matchStatus = match.matchInfo.matchStatus || '';
+        if (match.matchInfo.sectionsNo999) {
+          const scores = match.matchInfo.sectionsNo999.split(':');
+          awayScore = scores[0] || '';
+          homeScore = scores[1] || '';
         }
-        if (match.teamStats) teamStats = JSON.stringify(match.teamStats);
-        if (match.playerStats) playerStats = JSON.stringify(match.playerStats);
+        sectionsData = match.matchInfo.sectionsNos || '';
       }
+      if (match.teamStats) teamStats = JSON.stringify(match.teamStats);
+      if (match.playerStats) playerStats = JSON.stringify(match.playerStats);
+    } else {
+      // live 接口未返回该比赛：可能比赛尚未开始，记录为等待中
+      matchStatusName = '等待数据';
+      console.log(`[monitor] task ${taskId}: matchId=${matchId} 未在 live 接口中找到（共 ${liveMatches.length} 场）`);
     }
 
     // 保存记录
@@ -51,7 +58,13 @@ async function executeMonitorQuery(taskId, matchId) {
       `INSERT INTO monitor_records
        (task_id, match_id, record_type, raw_data, match_status, match_status_name, home_score, away_score, sections_data, team_stats, player_stats)
        VALUES (?, ?, 'live', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [taskId, matchId, JSON.stringify(liveData), matchStatus, matchStatusName, homeScore, awayScore, sectionsData, teamStats, playerStats]
+      [
+        taskId, matchId,
+        JSON.stringify(liveData),
+        matchStatus, matchStatusName,
+        homeScore, awayScore,
+        sectionsData, teamStats, playerStats
+      ]
     );
 
     // 更新任务状态
@@ -60,20 +73,24 @@ async function executeMonitorQuery(taskId, matchId) {
       [matchStatusName, taskId]
     );
 
-    // 如果比赛已结束，自动停止监控
+    // 比赛结束自动停止监控
     const endStatuses = ['6', '7', '8', 'Finished', 'Closed'];
-    if (endStatuses.includes(matchStatus) || matchStatusName.includes('结束') || matchStatusName.includes('完场')) {
+    if (
+      endStatuses.includes(matchStatus) ||
+      matchStatusName.includes('结束') ||
+      matchStatusName.includes('完场')
+    ) {
       await db.run(
         'UPDATE monitor_tasks SET status = ?, stopped_at = CURRENT_TIMESTAMP WHERE id = ?',
         ['finished', taskId]
       );
       stopMonitor(taskId);
-      console.log(`Task ${taskId} finished - match ended`);
+      console.log(`[monitor] task ${taskId} finished - match ended (${matchStatusName})`);
     }
 
-    console.log(`Monitor query executed for task ${taskId}, match ${matchId}: ${matchStatusName}`);
+    console.log(`[monitor] task ${taskId}, match ${matchId}: ${matchStatusName} | ${awayScore}-${homeScore}`);
   } catch (error) {
-    console.error(`Monitor query error for task ${taskId}:`, error.message);
+    console.error(`[monitor] query error for task ${taskId}:`, error.message);
     try {
       await db.run(
         `INSERT INTO monitor_records (task_id, match_id, record_type, raw_data, match_status_name)
@@ -81,7 +98,7 @@ async function executeMonitorQuery(taskId, matchId) {
         [taskId, matchId, JSON.stringify({ error: error.message }), '查询失败: ' + error.message]
       );
     } catch (dbError) {
-      console.error('Failed to save error record:', dbError.message);
+      console.error('[monitor] Failed to save error record:', dbError.message);
     }
   }
 }
@@ -92,12 +109,14 @@ async function executeMonitorQuery(taskId, matchId) {
 async function startMonitor(taskId) {
   const task = await db.get('SELECT * FROM monitor_tasks WHERE id = ?', [taskId]);
   if (!task) throw new Error('任务不存在');
+
   if (activeTasks.has(taskId)) {
-    console.log(`Task ${taskId} already running`);
+    console.log(`[monitor] task ${taskId} already running`);
     return;
   }
 
   const intervalMinutes = task.interval_minutes || 1;
+
   // 立即执行一次
   executeMonitorQuery(taskId, task.match_id);
 
@@ -108,7 +127,7 @@ async function startMonitor(taskId) {
   });
 
   activeTasks.set(taskId, cronTask);
-  console.log(`Monitor started for task ${taskId}, interval: ${intervalMinutes} minutes`);
+  console.log(`[monitor] task ${taskId} started, interval: ${intervalMinutes} min`);
 }
 
 /**
@@ -119,7 +138,7 @@ function stopMonitor(taskId) {
   if (cronTask) {
     cronTask.stop();
     activeTasks.delete(taskId);
-    console.log(`Monitor stopped for task ${taskId}`);
+    console.log(`[monitor] task ${taskId} stopped`);
   }
 }
 
@@ -135,10 +154,10 @@ async function restoreRunningTasks() {
     try {
       await startMonitor(task.id);
     } catch (error) {
-      console.error(`Failed to restore task ${task.id}:`, error.message);
+      console.error(`[monitor] Failed to restore task ${task.id}:`, error.message);
     }
   }
-  console.log(`Restored ${runningTasks.length} running tasks`);
+  console.log(`[monitor] Restored ${runningTasks.length} running tasks`);
 }
 
 /**

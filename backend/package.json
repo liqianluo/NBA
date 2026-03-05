@@ -1,6 +1,6 @@
 {
   "name": "nba-monitor-backend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "NBA 体育信息监控系统后端",
   "main": "src/app.js",
   "scripts": {

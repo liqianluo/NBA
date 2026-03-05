@@ -98,7 +98,7 @@ export default function App() {
               }}>🏀</div>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#1d1d1f', lineHeight: 1.2 }}>NBA Monitor</div>
-                <div style={{ fontSize: 11, color: '#6e6e73' }}>体育信息监控</div>
+                <div style={{ fontSize: 11, color: '#6e6e73' }}>体育信息监控 v2.0.0</div>
               </div>
             </div>
           </div>

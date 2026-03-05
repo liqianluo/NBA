@@ -49,12 +49,22 @@ async function ping() {
 }
 
 /**
- * 查询篮球赛程信息（竞蓝）
+ * 查询篮球赛程信息（竞蓝，仅未开赛）
  */
 async function getBasketballList(date) {
   const params = {};
   if (date) params.date = date;
   return await request('/firo/basketball/list', params);
+}
+
+/**
+ * 查询篮球赛程信息（全部赛事，含已开赛/已结束）
+ * Bug1 修复：用于展示历史日期赛事列表
+ */
+async function getBasketballAllList(date) {
+  const params = {};
+  if (date) params.date = date;
+  return await request('/firo/basketball/all-list', params);
 }
 
 /**
@@ -91,6 +101,7 @@ module.exports = {
   getConfig,
   ping,
   getBasketballList,
+  getBasketballAllList,
   getBasketballLive,
   getBasketballInfo,
   getBasketballOdds,
