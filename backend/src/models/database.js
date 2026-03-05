@@ -13,7 +13,8 @@ async function initDatabase() {
   // 第一步：不指定数据库连接，自动创建数据库
   const conn = await mysql.createConnection({
     host: DB_HOST, port: DB_PORT,
-    user: DB_USER, password: DB_PASSWORD
+    user: DB_USER, password: DB_PASSWORD,
+    connectTimeout: 10000
   });
   await conn.execute(
     `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
@@ -26,7 +27,9 @@ async function initDatabase() {
     user: DB_USER, password: DB_PASSWORD,
     database: DB_NAME,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: 20,          // 增加连接池大小
+    queueLimit: 50,               // 限制等待队列，避免无限积压
+    connectTimeout: 10000,        // 连接超时 10s
     charset: 'utf8mb4'
   });
 
