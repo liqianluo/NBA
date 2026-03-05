@@ -1,76 +1,163 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Tabs, Table, Spin, Button, Tag, message, Modal, Form, InputNumber, Avatar, Tooltip } from 'antd';
-import { ArrowLeftOutlined, PlayCircleOutlined, ReloadOutlined, UserOutlined } from '@ant-design/icons';
+import { Card, Tabs, Table, Spin, Button, Tag, message, Modal, Form, InputNumber } from 'antd';
+import { ArrowLeftOutlined, PlayCircleOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import request from '../utils/request';
 
-// ─── 球员统计表格组件（与 MonitorPage 保持一致）─────────────────────────────
-function PlayerStatsTable({ players, teamName, teamLogo, summary }) {
+// ─── 球员统计表格组件 ─────────────────────────────────────────────────────────
+// 字段名完全对应 API 真实返回：
+//   uniformNo / personName / starterFlag / playingMinuteCnt / playingSecondCnt
+//   goalCnt / shotCnt / threePointGoalCnt / threePointShotCnt
+//   freeThrowGoalCnt / freeThrowShotCnt / offenseReboundCnt / defenceReboundCnt
+//   assistCnt / stealCnt / blockCnt / turnoverCnt / personalFoulCnt / totalScore
+function PlayerStatsTable({ players, teamName, teamLogoPath }) {
   if (!players || players.length === 0) return null;
 
   const columns = [
-    { title: '背号', dataIndex: 'shirtNumber', key: 'shirtNumber', width: 52, align: 'center' },
     {
-      title: '姓名', dataIndex: 'playerName', key: 'playerName', width: 110,
-      render: (name, r) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Avatar size={24} src={r.logoPath} icon={<UserOutlined />} />
-          <span>{name}</span>
-        </div>
-      )
+      title: '背号', dataIndex: 'uniformNo', key: 'uniformNo',
+      width: 52, align: 'center', fixed: 'left',
     },
-    { title: '首发', dataIndex: 'isStart', key: 'isStart', width: 52, align: 'center', render: v => v === 1 || v === '1' || v === true ? '是' : '否' },
-    { title: '出场时间', dataIndex: 'playTime', key: 'playTime', width: 72, align: 'center', render: v => v ? `${v}'` : '-' },
-    { title: '投篮', key: 'fg', width: 72, align: 'center', render: (_, r) => `${r.fieldGoalsMade ?? 0}-${r.fieldGoalsAttempted ?? 0}` },
-    { title: '三分', key: 'tp', width: 72, align: 'center', render: (_, r) => `${r.threePointersMade ?? 0}-${r.threePointersAttempted ?? 0}` },
-    { title: '罚球', key: 'ft', width: 72, align: 'center', render: (_, r) => `${r.freeThrowsMade ?? 0}-${r.freeThrowsAttempted ?? 0}` },
-    { title: '前篮板', dataIndex: 'offensiveRebounds', key: 'offReb', width: 62, align: 'center', render: v => v ?? 0 },
-    { title: '后篮板', dataIndex: 'defensiveRebounds', key: 'defReb', width: 62, align: 'center', render: v => v ?? 0 },
-    { title: '总篮板', dataIndex: 'totalRebounds', key: 'totReb', width: 62, align: 'center', render: v => v ?? 0, onHeaderCell: () => ({ style: { background: '#e8f4ff' } }), onCell: () => ({ style: { background: '#f0f8ff', fontWeight: 600 } }) },
-    { title: '助攻', dataIndex: 'assists', key: 'assists', width: 52, align: 'center', render: v => v ?? 0 },
-    { title: '抢断', dataIndex: 'steals', key: 'steals', width: 52, align: 'center', render: v => v ?? 0 },
-    { title: '盖帽', dataIndex: 'blocks', key: 'blocks', width: 52, align: 'center', render: v => v ?? 0 },
-    { title: '失误', dataIndex: 'turnovers', key: 'turnovers', width: 52, align: 'center', render: v => v ?? 0 },
-    { title: '犯规', dataIndex: 'fouls', key: 'fouls', width: 52, align: 'center', render: v => v ?? 0 },
-    { title: '得分', dataIndex: 'points', key: 'points', width: 52, align: 'center', render: v => v ?? 0, onHeaderCell: () => ({ style: { background: '#fff3e0' } }), onCell: () => ({ style: { background: '#fffbf0', fontWeight: 700, color: '#d46b08' } }) },
+    {
+      title: '姓名', dataIndex: 'personName', key: 'personName',
+      width: 100, fixed: 'left',
+    },
+    {
+      title: '首发', dataIndex: 'starterFlag', key: 'starterFlag',
+      width: 52, align: 'center',
+      render: v => {
+        if (v === '1') return <span style={{ color: '#1677ff', fontWeight: 600 }}>是</span>;
+        if (v === '0') return <span style={{ color: '#8c8c8c' }}>否</span>;
+        return <span style={{ color: '#bbb' }}>—</span>;
+      }
+    },
+    {
+      title: '出场时间', key: 'playingTime', width: 72, align: 'center',
+      render: (_, r) => {
+        if (r.playingFlag === '0' || (!r.playingMinuteCnt && !r.playingSecondCnt)) {
+          return <span style={{ color: '#bbb' }}>未出场</span>;
+        }
+        return `${r.playingMinuteCnt || 0}'`;
+      }
+    },
+    {
+      title: '投篮', key: 'fg', width: 64, align: 'center',
+      render: (_, r) => `${r.goalCnt ?? '-'}-${r.shotCnt ?? '-'}`
+    },
+    {
+      title: '三分', key: 'tp', width: 64, align: 'center',
+      render: (_, r) => `${r.threePointGoalCnt ?? '-'}-${r.threePointShotCnt ?? '-'}`
+    },
+    {
+      title: '罚球', key: 'ft', width: 64, align: 'center',
+      render: (_, r) => `${r.freeThrowGoalCnt ?? '-'}-${r.freeThrowShotCnt ?? '-'}`
+    },
+    {
+      title: '前篮板', dataIndex: 'offenseReboundCnt', key: 'offReb',
+      width: 62, align: 'center', render: v => v ?? '-'
+    },
+    {
+      title: '后篮板', dataIndex: 'defenceReboundCnt', key: 'defReb',
+      width: 62, align: 'center', render: v => v ?? '-'
+    },
+    {
+      title: '总篮板', key: 'totReb', width: 62, align: 'center',
+      onHeaderCell: () => ({ style: { background: '#e8f4ff' } }),
+      onCell: () => ({ style: { background: '#f0f8ff', fontWeight: 600 } }),
+      render: (_, r) => {
+        const off = parseInt(r.offenseReboundCnt || 0);
+        const def = parseInt(r.defenceReboundCnt || 0);
+        return (off + def) || '-';
+      }
+    },
+    {
+      title: '助攻', dataIndex: 'assistCnt', key: 'assistCnt',
+      width: 52, align: 'center', render: v => v ?? '-'
+    },
+    {
+      title: '抢断', dataIndex: 'stealCnt', key: 'stealCnt',
+      width: 52, align: 'center', render: v => v ?? '-'
+    },
+    {
+      title: '盖帽', dataIndex: 'blockCnt', key: 'blockCnt',
+      width: 52, align: 'center', render: v => v ?? '-'
+    },
+    {
+      title: '失误', dataIndex: 'turnoverCnt', key: 'turnoverCnt',
+      width: 52, align: 'center', render: v => v ?? '-'
+    },
+    {
+      title: '犯规', dataIndex: 'personalFoulCnt', key: 'personalFoulCnt',
+      width: 52, align: 'center', render: v => v ?? '-'
+    },
+    {
+      title: '得分', dataIndex: 'totalScore', key: 'totalScore',
+      width: 60, align: 'center', fixed: 'right',
+      onHeaderCell: () => ({ style: { background: '#fff3e0' } }),
+      onCell: () => ({ style: { background: '#fffbf0' } }),
+      render: v => <span style={{ fontWeight: 700, fontSize: 14, color: '#d46b08' }}>{v ?? '-'}</span>,
+      sorter: (a, b) => parseInt(a.totalScore || 0) - parseInt(b.totalScore || 0),
+    },
   ];
 
-  // 汇总行
-  const summaryRow = summary ? [{
+  // 汇总行（合计）
+  const sum = (key) => players.reduce((acc, p) => acc + parseInt(p[key] || 0), 0);
+  const summaryRow = {
+    personId: '__summary__',
+    uniformNo: '',
+    personName: '',
+    starterFlag: null,
+    playingFlag: null,
+    goalCnt: sum('goalCnt'),
+    shotCnt: sum('shotCnt'),
+    threePointGoalCnt: sum('threePointGoalCnt'),
+    threePointShotCnt: sum('threePointShotCnt'),
+    freeThrowGoalCnt: sum('freeThrowGoalCnt'),
+    freeThrowShotCnt: sum('freeThrowShotCnt'),
+    offenseReboundCnt: sum('offenseReboundCnt'),
+    defenceReboundCnt: sum('defenceReboundCnt'),
+    assistCnt: sum('assistCnt'),
+    stealCnt: sum('stealCnt'),
+    blockCnt: sum('blockCnt'),
+    turnoverCnt: sum('turnoverCnt'),
+    personalFoulCnt: sum('personalFoulCnt'),
+    totalScore: sum('totalScore'),
     _isSummary: true,
-    shirtNumber: '合计',
-    playerName: '',
-    isStart: '',
-    playTime: '',
-    fieldGoalsMade: summary.fieldGoalsMade, fieldGoalsAttempted: summary.fieldGoalsAttempted,
-    threePointersMade: summary.threePointersMade, threePointersAttempted: summary.threePointersAttempted,
-    freeThrowsMade: summary.freeThrowsMade, freeThrowsAttempted: summary.freeThrowsAttempted,
-    offensiveRebounds: summary.offensiveRebounds,
-    defensiveRebounds: summary.defensiveRebounds,
-    totalRebounds: summary.totalRebounds,
-    assists: summary.assists,
-    steals: summary.steals,
-    blocks: summary.blocks,
-    turnovers: summary.turnovers,
-    fouls: summary.fouls,
-    points: summary.points,
-  }] : [];
+  };
 
   return (
     <div style={{ marginBottom: 32 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        {teamLogo && <Avatar size={28} src={teamLogo} />}
-        <span style={{ fontWeight: 700, fontSize: 15 }}>{teamName}</span>
+      {/* 球队标题行 */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '10px 16px', background: '#f5f5f7',
+        borderRadius: '8px 8px 0 0', borderBottom: '2px solid #e5e5ea'
+      }}>
+        {teamLogoPath && (
+          <img
+            src={teamLogoPath.startsWith('//') ? `https:${teamLogoPath}` : teamLogoPath}
+            alt={teamName}
+            style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 4 }}
+            onError={e => { e.target.style.display = 'none'; }}
+          />
+        )}
+        <span style={{ fontWeight: 700, fontSize: 15, color: '#1d1d1f' }}>{teamName}</span>
       </div>
-      <div className="player-stats-table" style={{ overflowX: 'auto' }}>
+      <div className="player-stats-table">
         <Table
           columns={columns}
-          dataSource={[...players, ...summaryRow]}
-          rowKey={(r, i) => r._isSummary ? '__summary__' : (r.playerId || i)}
+          dataSource={[...players, summaryRow]}
+          rowKey={(r) => r._isSummary ? '__summary__' : (r.personId || r.uniformNo)}
           pagination={false}
           size="small"
-          rowClassName={r => r._isSummary ? 'player-summary-row' : ''}
+          bordered
           scroll={{ x: 900 }}
+          rowClassName={r => r._isSummary ? 'player-summary-row' : ''}
+          onRow={r => ({
+            style: r._isSummary ? {
+              background: '#f0f0f0', fontWeight: 600, borderTop: '2px solid #d9d9d9'
+            } : {}
+          })}
         />
       </div>
     </div>
@@ -90,7 +177,7 @@ export default function MatchDetailPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // 球员统计状态
-  const [playerStats, setPlayerStats] = useState(null);
+  const [playerStatsData, setPlayerStatsData] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsMsg, setStatsMsg] = useState('');
   const [activeTab, setActiveTab] = useState('odds');
@@ -102,9 +189,9 @@ export default function MatchDetailPage() {
     fetchOdds();
   }, [matchId]);
 
-  // 切换到球员统计 Tab 时自动加载
+  // 切换到球员统计 Tab 时自动加载（懒加载）
   useEffect(() => {
-    if (activeTab === 'players' && !playerStats && !statsLoading) {
+    if (activeTab === 'players' && !playerStatsData && !statsLoading) {
       fetchPlayerStats();
     }
   }, [activeTab]);
@@ -133,7 +220,7 @@ export default function MatchDetailPage() {
     try {
       const res = await request.get(`/matches/player-stats/${matchId}?date=${matchDate}`);
       if (res.success && res.data) {
-        setPlayerStats(res.data);
+        setPlayerStatsData(res.data);
       } else {
         setStatsMsg(res.message || '暂无球员统计数据');
       }
@@ -176,18 +263,26 @@ export default function MatchDetailPage() {
     { title: '主队', dataIndex: 'homeTeam', key: 'homeTeam', width: 100 },
     { title: '客队', dataIndex: 'awayTeam', key: 'awayTeam', width: 100 },
     { title: '比分', dataIndex: 'score', key: 'score', width: 100 },
-    { title: '结果', dataIndex: 'result', key: 'result', width: 80, render: v => {
-      const colorMap = { W: 'green', L: 'red', D: 'default' };
-      return <Tag color={colorMap[v] || 'default'}>{v}</Tag>;
-    }}
+    {
+      title: '结果', dataIndex: 'result', key: 'result', width: 80,
+      render: v => {
+        const colorMap = { W: 'green', L: 'red', D: 'default' };
+        return <Tag color={colorMap[v] || 'default'}>{v}</Tag>;
+      }
+    }
   ];
 
   // ── 球员统计 Tab 内容 ──
   const renderPlayerStats = () => {
     if (statsLoading) {
-      return <div style={{ textAlign: 'center', padding: '60px 0' }}><Spin tip="加载球员统计中..." /></div>;
+      return (
+        <div style={{ textAlign: 'center', padding: '60px 0' }}>
+          <Spin tip="加载球员统计中..." />
+        </div>
+      );
     }
-    if (!playerStats) {
+
+    if (!playerStatsData) {
       return (
         <div style={{ textAlign: 'center', padding: '40px 0' }}>
           <div style={{ color: '#6e6e73', marginBottom: 16 }}>{statsMsg || '暂无球员统计数据'}</div>
@@ -196,32 +291,56 @@ export default function MatchDetailPage() {
       );
     }
 
-    const { playerStats: ps, teamStats, homeScore, awayScore, matchStatusName } = playerStats;
-    const away = ps?.awayPlayerStats || {};
-    const home = ps?.homePlayerStats || {};
+    const { playerStats: ps, teamStats: ts, homeScore, awayScore, matchStatusName } = playerStatsData;
 
-    // 球队汇总数据
-    const awaySummary = teamStats?.stats?.away || null;
-    const homeSummary = teamStats?.stats?.home || null;
+    // 客队/主队球员列表（API 字段：awayPlayerStats / homePlayerStats，已在后端解析为数组）
+    const awayPlayers = Array.isArray(ps?.awayPlayerStats) ? ps.awayPlayerStats : [];
+    const homePlayers = Array.isArray(ps?.homePlayerStats) ? ps.homePlayerStats : [];
+
+    // 球队名称和 logo（来自 teamStats）
+    const awayName = ps?.awayTeamShortName || ts?.awayTeamShortName || '客队';
+    const homeName = ps?.homeTeamShortName || ts?.homeTeamShortName || '主队';
+    const awayLogo = ts?.awayTeamLogoPath || '';
+    const homeLogo = ts?.homeTeamLogoPath || '';
 
     return (
       <div style={{ paddingBottom: 16 }}>
         {/* 比分头部 */}
         {(homeScore || awayScore) && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, marginBottom: 24, padding: '16px', background: '#f5f5f7', borderRadius: 10 }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 32, marginBottom: 20, padding: '14px 20px',
+            background: '#f5f5f7', borderRadius: 10
+          }}>
             <div style={{ textAlign: 'center' }}>
-              {away.teamLogoPath && <Avatar size={36} src={away.teamLogoPath} style={{ marginBottom: 4 }} />}
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{away.teamName || '客队'}</div>
+              {awayLogo && (
+                <img
+                  src={awayLogo.startsWith('//') ? `https:${awayLogo}` : awayLogo}
+                  alt={awayName}
+                  style={{ width: 36, height: 36, objectFit: 'contain', display: 'block', margin: '0 auto 4px' }}
+                  onError={e => { e.target.style.display = 'none'; }}
+                />
+              )}
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{awayName}</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: -1, color: '#1d1d1f' }}>
                 {awayScore} <span style={{ color: '#d2d2d7', fontWeight: 400 }}>:</span> {homeScore}
               </div>
-              {matchStatusName && <div style={{ fontSize: 12, color: '#6e6e73', marginTop: 2 }}>{matchStatusName}</div>}
+              {matchStatusName && (
+                <div style={{ fontSize: 12, color: '#6e6e73', marginTop: 2 }}>{matchStatusName}</div>
+              )}
             </div>
             <div style={{ textAlign: 'center' }}>
-              {home.teamLogoPath && <Avatar size={36} src={home.teamLogoPath} style={{ marginBottom: 4 }} />}
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{home.teamName || '主队'}</div>
+              {homeLogo && (
+                <img
+                  src={homeLogo.startsWith('//') ? `https:${homeLogo}` : homeLogo}
+                  alt={homeName}
+                  style={{ width: 36, height: 36, objectFit: 'contain', display: 'block', margin: '0 auto 4px' }}
+                  onError={e => { e.target.style.display = 'none'; }}
+                />
+              )}
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{homeName}</div>
             </div>
           </div>
         )}
@@ -235,21 +354,19 @@ export default function MatchDetailPage() {
 
         {/* 客队球员统计 */}
         <PlayerStatsTable
-          players={away.players || []}
-          teamName={away.teamName || '客队'}
-          teamLogo={away.teamLogoPath}
-          summary={awaySummary}
+          players={awayPlayers}
+          teamName={awayName}
+          teamLogoPath={awayLogo}
         />
 
         {/* 主队球员统计 */}
         <PlayerStatsTable
-          players={home.players || []}
-          teamName={home.teamName || '主队'}
-          teamLogo={home.teamLogoPath}
-          summary={homeSummary}
+          players={homePlayers}
+          teamName={homeName}
+          teamLogoPath={homeLogo}
         />
 
-        {(!away.players?.length && !home.players?.length) && (
+        {(!awayPlayers.length && !homePlayers.length) && (
           <div style={{ textAlign: 'center', padding: '40px 0', color: '#6e6e73' }}>
             暂无球员统计数据（比赛可能尚未开始或数据未更新）
           </div>
