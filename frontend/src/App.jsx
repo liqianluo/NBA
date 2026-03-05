@@ -1,26 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Typography, Badge, ConfigProvider } from 'antd';
+import { Layout, Menu, Badge, ConfigProvider, Tooltip } from 'antd';
 import {
   SettingOutlined,
   PlayCircleOutlined,
   UnorderedListOutlined,
-  BarChartOutlined,
-  CalendarOutlined
+  CalendarOutlined,
+  AppstoreOutlined,
+  TrophyOutlined,
+  ApiOutlined
 } from '@ant-design/icons';
 import ConfigPage from './pages/ConfigPage';
 import LiveMatchesPage from './pages/LiveMatchesPage';
 import MonitorPage from './pages/MonitorPage';
 import TaskCenterPage from './pages/TaskCenterPage';
 import MatchDetailPage from './pages/MatchDetailPage';
+import SchedulePage from './pages/SchedulePage';
+import AllMatchesPage from './pages/AllMatchesPage';
+import ResultsPage from './pages/ResultsPage';
 import request from './utils/request';
 
 const { Sider, Content } = Layout;
-const { Title } = Typography;
 
 const menuItems = [
   { key: '/config', icon: <SettingOutlined />, label: 'API 配置' },
+  { type: 'divider' },
   { key: '/live', icon: <PlayCircleOutlined />, label: '直播赛事' },
+  { key: '/schedule', icon: <CalendarOutlined />, label: '竞蓝赛程' },
+  { key: '/all-matches', icon: <AppstoreOutlined />, label: '全部赛事' },
+  { type: 'divider' },
+  { key: '/results', icon: <TrophyOutlined />, label: '开奖结果' },
   { key: '/tasks', icon: <UnorderedListOutlined />, label: '任务中心' },
 ];
 
@@ -29,6 +38,7 @@ export default function App() {
   const location = useLocation();
   const [hasConfig, setHasConfig] = useState(false);
   const [runningCount, setRunningCount] = useState(0);
+  const [usageInfo, setUsageInfo] = useState(null);
 
   useEffect(() => {
     checkConfig();
@@ -36,6 +46,14 @@ export default function App() {
     const interval = setInterval(fetchRunningCount, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (hasConfig) {
+      fetchUsage();
+      const interval = setInterval(fetchUsage, 120000); // 每2分钟刷新调用量
+      return () => clearInterval(interval);
+    }
+  }, [hasConfig]);
 
   const checkConfig = async () => {
     try {
@@ -50,6 +68,15 @@ export default function App() {
       if (res.success) {
         const running = res.data.filter(t => t.status === 'running').length;
         setRunningCount(running);
+      }
+    } catch (e) {}
+  };
+
+  const fetchUsage = async () => {
+    try {
+      const res = await request.get('/config/usage');
+      if (res.success && res.data?.data) {
+        setUsageInfo(res.data.data);
       }
     } catch (e) {}
   };
@@ -81,24 +108,18 @@ export default function App() {
           }}
         >
           {/* Logo */}
-          <div style={{
-            padding: '24px 20px 20px',
-            borderBottom: '1px solid #f0f0f0'
-          }}>
+          <div style={{ padding: '24px 20px 20px', borderBottom: '1px solid #f0f0f0' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{
-                width: 36,
-                height: 36,
+                width: 36, height: 36,
                 background: 'linear-gradient(135deg, #0071e3, #00a3ff)',
                 borderRadius: 10,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 18
               }}>🏀</div>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#1d1d1f', lineHeight: 1.2 }}>NBA Monitor</div>
-                <div style={{ fontSize: 11, color: '#6e6e73' }}>体育信息监控 v2.0.0</div>
+                <div style={{ fontSize: 11, color: '#6e6e73' }}>体育信息监控 v3.0.0</div>
               </div>
             </div>
           </div>
@@ -106,44 +127,49 @@ export default function App() {
           {/* 菜单 */}
           <Menu
             mode="inline"
-            selectedKeys={[selectedKey.startsWith('/monitor') ? '/tasks' : selectedKey]}
+            selectedKeys={[selectedKey.startsWith('/monitor') ? '/tasks' : selectedKey.startsWith('/match') ? '/live' : selectedKey]}
             style={{ marginTop: 8, border: 'none', background: 'transparent' }}
             onClick={({ key }) => navigate(key)}
-            items={menuItems.map(item => ({
-              ...item,
-              label: item.key === '/tasks' && runningCount > 0
-                ? <span>{item.label} <Badge count={runningCount} size="small" style={{ marginLeft: 4 }} /></span>
-                : item.label
-            }))}
+            items={menuItems.map(item => {
+              if (item.type === 'divider') return item;
+              if (item.key === '/tasks' && runningCount > 0) {
+                return {
+                  ...item,
+                  label: <span>{item.label} <Badge count={runningCount} size="small" style={{ marginLeft: 4 }} /></span>
+                };
+              }
+              return item;
+            })}
           />
 
           {/* 底部状态 */}
-          <div style={{
-            position: 'absolute',
-            bottom: 20,
-            left: 0,
-            right: 0,
-            padding: '0 20px'
-          }}>
+          <div style={{ position: 'absolute', bottom: 20, left: 0, right: 0, padding: '0 20px' }}>
+            {/* API 调用量 */}
+            {usageInfo && (
+              <Tooltip title={`总量: ${usageInfo.total || '—'} | 已用: ${usageInfo.used || '—'}`}>
+                <div style={{
+                  padding: '8px 14px', marginBottom: 8,
+                  background: 'rgba(0, 113, 227, 0.06)',
+                  borderRadius: 8, fontSize: 12, cursor: 'default'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#0071e3' }}>
+                    <ApiOutlined />
+                    <span>剩余调用量: <strong>{usageInfo.remaining ?? usageInfo.total ?? '—'}</strong></span>
+                  </div>
+                </div>
+              </Tooltip>
+            )}
+            {/* API 配置状态 */}
             <div style={{
               padding: '10px 14px',
               background: hasConfig ? 'rgba(52, 199, 89, 0.08)' : 'rgba(255, 59, 48, 0.08)',
-              borderRadius: 8,
-              fontSize: 12
+              borderRadius: 8, fontSize: 12
             }}>
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
+                display: 'flex', alignItems: 'center', gap: 6,
                 color: hasConfig ? '#34c759' : '#ff3b30'
               }}>
-                <span style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: 'currentColor',
-                  display: 'inline-block'
-                }} />
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
                 {hasConfig ? 'API 已配置' : 'API 未配置'}
               </div>
             </div>
@@ -153,9 +179,12 @@ export default function App() {
         <Layout style={{ marginLeft: 220 }}>
           <Content style={{ padding: '0 32px 32px', minHeight: '100vh' }}>
             <Routes>
-              <Route path="/" element={<ConfigPage onConfigSaved={() => setHasConfig(true)} />} />
-              <Route path="/config" element={<ConfigPage onConfigSaved={() => setHasConfig(true)} />} />
+              <Route path="/" element={<ConfigPage onConfigSaved={() => { setHasConfig(true); fetchUsage(); }} />} />
+              <Route path="/config" element={<ConfigPage onConfigSaved={() => { setHasConfig(true); fetchUsage(); }} />} />
               <Route path="/live" element={<LiveMatchesPage />} />
+              <Route path="/schedule" element={<SchedulePage />} />
+              <Route path="/all-matches" element={<AllMatchesPage />} />
+              <Route path="/results" element={<ResultsPage />} />
               <Route path="/tasks" element={<TaskCenterPage onCountChange={setRunningCount} />} />
               <Route path="/monitor/:taskId" element={<MonitorPage />} />
               <Route path="/match/:matchId" element={<MatchDetailPage />} />

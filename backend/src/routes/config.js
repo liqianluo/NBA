@@ -42,6 +42,16 @@ router.post('/', async (req, res) => {
   }
 });
 
+// 查询 API 剩余调用量
+router.get('/usage', async (req, res) => {
+  try {
+    const result = await apiService.getUsageRemaining();
+    res.json({ success: true, data: result });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Ping 测试
 router.post('/ping', async (req, res) => {
   try {

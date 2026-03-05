@@ -24,7 +24,7 @@ app.use('/api/monitor', require('./routes/monitor'));
 
 // 健康检查
 app.get('/api/health', (req, res) => {
-  res.json({ success: true, message: 'NBA Monitor API is running', version: '2.0.0' });
+  res.json({ success: true, message: 'NBA Monitor API is running', version: '3.0.0' });
 });
 
 // 静态文件服务（前端构建产物）

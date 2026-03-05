@@ -49,6 +49,13 @@ async function ping() {
 }
 
 /**
+ * 查询 API 剩余调用量
+ */
+async function getUsageRemaining() {
+  return await ping();
+}
+
+/**
  * 查询篮球赛程信息（竞蓝，仅未开赛）
  */
 async function getBasketballList(date) {
@@ -100,6 +107,7 @@ async function getBasketballMatchResults(startDate, endDate) {
 module.exports = {
   getConfig,
   ping,
+  getUsageRemaining,
   getBasketballList,
   getBasketballAllList,
   getBasketballLive,
