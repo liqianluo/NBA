@@ -69,7 +69,10 @@ router.get('/player-stats/:matchId', async (req, res) => {
     if (!date) {
       return res.status(400).json({ success: false, message: '请提供比赛日期（date）' });
     }
+    console.log(`[player-stats] 开始请求 matchId=${matchId} date=${date}`);
+    const t0 = Date.now();
     const liveData = await apiService.getBasketballLive(date);
+    console.log(`[player-stats] live接口耗时 ${Date.now() - t0}ms`);
     if (!liveData || !liveData.data || !liveData.data.matches) {
       return res.json({ success: true, data: null, message: '未找到该日期的比赛数据' });
     }
@@ -112,6 +115,7 @@ router.get('/player-stats/:matchId', async (req, res) => {
       data: { playerStats, teamStats, homeScore, awayScore, sections, matchStatusName }
     });
   } catch (error) {
+    console.error(`[player-stats] 错误:`, error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 });

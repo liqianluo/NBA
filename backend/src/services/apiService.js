@@ -24,7 +24,9 @@ async function request(path, params = {}) {
 
   const response = await axios.get(url, {
     headers,
-    timeout: 15000
+    timeout: 20000,
+    maxContentLength: 50 * 1024 * 1024,  // 50MB
+    maxBodyLength: 50 * 1024 * 1024       // 50MB
   });
 
   return response.data;
