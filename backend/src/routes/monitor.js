@@ -46,7 +46,7 @@ router.post('/tasks', async (req, res) => {
     const result = await db.run(
       `INSERT INTO monitor_tasks (match_id, match_name, home_team, away_team, league_name, match_date, match_time, interval_minutes, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running')`,
-      [match_id, match_name, home_team || '', away_team || '', league_name || '', match_date || '', match_time || '', interval_minutes || 5]
+      [match_id, match_name, home_team || '', away_team || '', league_name || '', match_date || '', match_time || '', interval_minutes || 1]
     );
 
     const taskId = result.lastInsertId;
@@ -185,6 +185,69 @@ router.get('/tasks/:id/records', async (req, res) => {
       total: totalRow ? totalRow.count : 0,
       page: parseInt(page),
       pageSize: parseInt(pageSize)
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 获取最新球员统计数据（用于前端实时展示）
+router.get('/tasks/:id/latest-stats', async (req, res) => {
+  try {
+    const record = await db.get(
+      `SELECT player_stats, team_stats, match_status_name, home_score, away_score,
+              sections_data, queried_at
+       FROM monitor_records
+       WHERE task_id = ? AND player_stats IS NOT NULL AND player_stats != ''
+       ORDER BY queried_at DESC LIMIT 1`,
+      [req.params.id]
+    );
+    if (!record) {
+      return res.json({ success: true, data: null, message: '暂无球员统计数据' });
+    }
+    // 解析 player_stats
+    let playerStats = null;
+    try {
+      playerStats = typeof record.player_stats === 'string'
+        ? JSON.parse(record.player_stats)
+        : record.player_stats;
+      if (playerStats && typeof playerStats.awayPlayerStats === 'string') {
+        playerStats.awayPlayerStats = JSON.parse(playerStats.awayPlayerStats);
+      }
+      if (playerStats && typeof playerStats.homePlayerStats === 'string') {
+        playerStats.homePlayerStats = JSON.parse(playerStats.homePlayerStats);
+      }
+    } catch (e) {
+      console.error('player_stats parse error:', e.message);
+    }
+    // 解析 team_stats
+    let teamStats = null;
+    try {
+      teamStats = typeof record.team_stats === 'string'
+        ? JSON.parse(record.team_stats)
+        : record.team_stats;
+      if (teamStats && typeof teamStats.stats === 'string') {
+        teamStats.stats = JSON.parse(teamStats.stats);
+      }
+    } catch (e) {}
+    // 解析 sections_data
+    let sections = [];
+    try {
+      sections = typeof record.sections_data === 'string'
+        ? JSON.parse(record.sections_data)
+        : (record.sections_data || []);
+    } catch (e) {}
+    res.json({
+      success: true,
+      data: {
+        playerStats,
+        teamStats,
+        matchStatusName: record.match_status_name,
+        homeScore: record.home_score,
+        awayScore: record.away_score,
+        sections,
+        queriedAt: record.queried_at
+      }
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

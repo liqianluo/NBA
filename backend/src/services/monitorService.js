@@ -97,7 +97,7 @@ async function startMonitor(taskId) {
     return;
   }
 
-  const intervalMinutes = task.interval_minutes || 5;
+  const intervalMinutes = task.interval_minutes || 1;
   // 立即执行一次
   executeMonitorQuery(taskId, task.match_id);
 
