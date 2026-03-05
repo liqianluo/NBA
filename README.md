@@ -29,6 +29,51 @@
 
 ## 部署
 
+### 生产环境部署（全新安装）
+
+**第一步：安装后端依赖**
+```bash
+cd /www/NBA/NBA-main/backend
+npm install
+```
+
+**第二步：安装前端依赖并构建**
+```bash
+cd /www/NBA/NBA-main/frontend
+npm install
+npm run build
+```
+
+**第三步：启动后端**
+```bash
+cd /www/NBA/NBA-main/backend
+nohup npm start > /var/log/nba-monitor.log 2>&1 &
+```
+
+**验证是否启动成功：**
+```bash
+tail -f /var/log/nba-monitor.log
+```
+看到 `NBA Monitor Server running on port 9565` 就说明启动成功了，按 `Ctrl+C` 退出日志查看。
+
+### 更新部署（仅更新代码）
+
+```bash
+# 停止旧进程
+kill $(lsof -t -i:9565)
+
+# 拉取最新代码
+cd /www/NBA/NBA-main
+git pull origin main
+
+# 重新构建前端（如有前端改动）
+cd frontend && npm run build
+
+# 重启后端
+cd ../backend
+nohup npm start > /var/log/nba-monitor.log 2>&1 &
+```
+
 - [CentOS 部署教程](./DEPLOY_CENTOS.md)
 
 ## 快速开始（本地开发）
