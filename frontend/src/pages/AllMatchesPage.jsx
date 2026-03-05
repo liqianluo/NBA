@@ -32,9 +32,10 @@ export default function AllMatchesPage() {
     try {
       const dateStr = selectedDate.format('YYYY-MM-DD');
       const res = await request.get(`/matches/all-list?date=${dateStr}`);
-      if (res.success && res.data?.data) {
-        const raw = res.data.data;
-        const list = Array.isArray(raw) ? raw : (raw.matches || raw.list || []);
+      if (res.success && res.data) {
+        // API 返回结构: { code, data: [...] }
+        const raw = res.data;
+        const list = Array.isArray(raw.data) ? raw.data : (raw.matches || raw.list || []);
         setMatches(list);
       } else {
         setMatches([]);

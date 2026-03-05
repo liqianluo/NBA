@@ -28,7 +28,11 @@ app.get('/api/health', (req, res) => {
 });
 
 // 静态文件服务（前端构建产物）
-const frontendDist = path.join(__dirname, '../../frontend/dist');
+// Docker 部署时：/app/frontend/dist；本地开发时：../../frontend/dist
+const frontendDist = process.env.FRONTEND_DIST
+  || (fs.existsSync(path.join(__dirname, 'frontend/dist'))
+      ? path.join(__dirname, 'frontend/dist')
+      : path.join(__dirname, '../../frontend/dist'));
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   app.get('/{*path}', (req, res) => {

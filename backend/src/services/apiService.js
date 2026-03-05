@@ -57,11 +57,11 @@ async function getUsageRemaining() {
 
 /**
  * 查询篮球赛程信息（竞蓝，仅未开赛）
+ * 注意：该接口不支持 date 参数，传参会导致签名验证失败(401)
+ * 只返回今日未开赛赛程
  */
-async function getBasketballList(date) {
-  const params = {};
-  if (date) params.date = date;
-  return await request('/firo/basketball/list', params);
+async function getBasketballList() {
+  return await request('/firo/basketball/list', {});
 }
 
 /**

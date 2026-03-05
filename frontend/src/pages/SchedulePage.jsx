@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card, DatePicker, Spin, Empty, Tag, Table, Button, Space, Tooltip,
-  Row, Col, Statistic, Badge, Divider
+  Card, Spin, Empty, Tag, Table, Button, Space, Badge
 } from 'antd';
-import { ReloadOutlined, CalendarOutlined, RiseOutlined, FallOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CalendarOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import request from '../utils/request';
 
@@ -28,26 +27,38 @@ const STATUS_LABELS = {
 export default function SchedulePage() {
   const [loading, setLoading] = useState(false);
   const [matches, setMatches] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(dayjs());
+  const [error, setError] = useState('');
+  const today = dayjs().format('YYYY年MM月DD日');
 
   useEffect(() => {
     fetchSchedule();
-  }, [selectedDate]);
+  }, []);
 
   const fetchSchedule = async () => {
     setLoading(true);
+    setError('');
     try {
-      const dateStr = selectedDate.format('YYYY-MM-DD');
-      const res = await request.get(`/matches/schedule?date=${dateStr}`);
-      if (res.success && res.data?.data) {
-        const raw = res.data.data;
-        const list = Array.isArray(raw) ? raw : (raw.matches || raw.list || []);
+      // 注意：竞蓝赛程接口不支持按日期查询，只返回今日未开赛赛程
+      const res = await request.get('/matches/schedule');
+      if (res.success && res.data) {
+        const raw = res.data;
+        // API 返回结构：{ code, data: [...] } 或 { data: { data: [...] } }
+        let list = [];
+        if (Array.isArray(raw.data)) {
+          list = raw.data;
+        } else if (raw.data && Array.isArray(raw.data.data)) {
+          list = raw.data.data;
+        } else if (Array.isArray(raw)) {
+          list = raw;
+        }
         setMatches(list);
       } else {
         setMatches([]);
+        if (!res.success) setError(res.message || '请求失败');
       }
     } catch (e) {
       setMatches([]);
+      setError(e.message || '请求失败');
     } finally {
       setLoading(false);
     }
@@ -92,7 +103,7 @@ export default function SchedulePage() {
     {
       title: '联赛',
       key: 'league',
-      width: 80,
+      width: 90,
       render: (_, r) => (
         <Tag color="blue" style={{ fontSize: 11 }}>
           {r.matchInfo?.leagueName || 'NBA'}
@@ -180,15 +191,9 @@ export default function SchedulePage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div className="page-title">竞蓝赛程</div>
-            <div className="page-subtitle">未开赛赛事列表，含实时赔率</div>
+            <div className="page-subtitle">今日未开赛赛事列表，含实时赔率</div>
           </div>
           <Space>
-            <DatePicker
-              value={selectedDate}
-              onChange={setSelectedDate}
-              allowClear={false}
-              style={{ width: 140 }}
-            />
             <Button icon={<ReloadOutlined />} onClick={fetchSchedule} loading={loading}>
               刷新
             </Button>
@@ -196,17 +201,23 @@ export default function SchedulePage() {
         </div>
       </div>
 
+      {error && (
+        <Card style={{ marginBottom: 16, borderColor: '#ff4d4f' }}>
+          <span style={{ color: '#ff4d4f' }}>⚠ {error}</span>
+        </Card>
+      )}
+
       <Spin spinning={loading}>
         {matches.length === 0 && !loading ? (
           <Card>
-            <Empty description={`${selectedDate.format('YYYY-MM-DD')} 暂无竞蓝赛程数据`} />
+            <Empty description="今日暂无竞蓝赛程数据" />
           </Card>
         ) : (
           <Card
             title={
               <Space>
                 <CalendarOutlined />
-                <span>{selectedDate.format('YYYY年MM月DD日')}</span>
+                <span>{today}</span>
                 <Tag color="blue">{matches.length} 场</Tag>
               </Space>
             }

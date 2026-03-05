@@ -1,0 +1,53 @@
+version: '3.9'
+
+services:
+  # ── MySQL 数据库 ──────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: nba-monitor-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-NbaMonitor2024!}
+      MYSQL_DATABASE: nba_monitor
+      MYSQL_USER: nba_user
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-NbaMonitor2024!}
+    volumes:
+      - nba_mysql_data:/var/lib/mysql
+    networks:
+      - nba-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-NbaMonitor2024!}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── NBA Monitor 应用 ──────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nba-monitor-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3001}:3001"
+    environment:
+      PORT: 3001
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: nba_monitor
+      DB_USER: nba_user
+      DB_PASSWORD: ${MYSQL_PASSWORD:-NbaMonitor2024!}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - nba-net
+
+volumes:
+  nba_mysql_data:
+    driver: local
+
+networks:
+  nba-net:
+    driver: bridge

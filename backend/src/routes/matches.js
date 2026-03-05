@@ -25,16 +25,17 @@ router.get('/live', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/schedule', async (req, res) => {
   try {
-    const { date } = req.query;
-    const queryDate = date || new Date().toISOString().split('T')[0];
-    const result = await apiService.getBasketballList(queryDate);
+    // 注意：basketball/list 接口不支持 date 参数，传参会导致 401 签名验证失败
+    // 该接口只返回今日未开赛赛程
+    const result = await apiService.getBasketballList();
+    const today = new Date().toISOString().split('T')[0];
 
     // 保存查询记录
     try {
       const matchCount = Array.isArray(result.data) ? result.data.length : 0;
       await db.run(
         'INSERT INTO schedule_records (query_date, raw_data, match_count) VALUES (?, ?, ?)',
-        [queryDate, JSON.stringify(result), matchCount]
+        [today, JSON.stringify(result), matchCount]
       );
     } catch (dbError) {
       console.error('Failed to save schedule record:', dbError.message);

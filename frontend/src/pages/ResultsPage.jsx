@@ -37,9 +37,10 @@ export default function ResultsPage() {
       const start = startDate.format('YYYY-MM-DD');
       const end = endDate.format('YYYY-MM-DD');
       const res = await request.get(`/matches/results?startDate=${start}&endDate=${end}`);
-      if (res.success && res.data?.data) {
-        const raw = res.data.data;
-        const list = Array.isArray(raw) ? raw : (raw.results || raw.list || []);
+      if (res.success && res.data) {
+        // API 返回结构: { code, data: { startDate, endDate, results: [...] } }
+        const raw = res.data;
+        const list = raw.results || (raw.data && raw.data.results) || (Array.isArray(raw.data) ? raw.data : []);
         setResults(list);
       } else {
         setResults([]);
