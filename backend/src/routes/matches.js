@@ -61,6 +61,61 @@ router.get('/odds/:matchId', async (req, res) => {
   }
 });
 
+// 获取指定赛事球员统计数据（直接从 live 接口按日期拉取）
+router.get('/player-stats/:matchId', async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ success: false, message: '请提供比赛日期（date）' });
+    }
+    const liveData = await apiService.getBasketballLive(date);
+    if (!liveData || !liveData.data || !liveData.data.matches) {
+      return res.json({ success: true, data: null, message: '未找到该日期的比赛数据' });
+    }
+    const match = liveData.data.matches.find(m => String(m.matchId) === String(matchId));
+    if (!match) {
+      return res.json({ success: true, data: null, message: '未找到该赛事，请确认日期是否正确' });
+    }
+    // 解析 playerStats
+    let playerStats = match.playerStats || null;
+    if (playerStats) {
+      if (typeof playerStats.awayPlayerStats === 'string') {
+        try { playerStats.awayPlayerStats = JSON.parse(playerStats.awayPlayerStats); } catch (e) {}
+      }
+      if (typeof playerStats.homePlayerStats === 'string') {
+        try { playerStats.homePlayerStats = JSON.parse(playerStats.homePlayerStats); } catch (e) {}
+      }
+    }
+    // 解析 teamStats
+    let teamStats = match.teamStats || null;
+    if (teamStats && typeof teamStats.stats === 'string') {
+      try { teamStats.stats = JSON.parse(teamStats.stats); } catch (e) {}
+    }
+    // 解析比分信息
+    let homeScore = '', awayScore = '', sections = [], matchStatusName = '';
+    if (match.matchInfo) {
+      matchStatusName = match.matchInfo.matchStatusName || '';
+      if (match.matchInfo.sectionsNo999) {
+        const scores = match.matchInfo.sectionsNo999.split(':');
+        awayScore = scores[0] || '';
+        homeScore = scores[1] || '';
+      }
+      try {
+        sections = typeof match.matchInfo.sectionsNos === 'string'
+          ? JSON.parse(match.matchInfo.sectionsNos || '[]')
+          : (match.matchInfo.sectionsNos || []);
+      } catch (e) {}
+    }
+    res.json({
+      success: true,
+      data: { playerStats, teamStats, homeScore, awayScore, sections, matchStatusName }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // 获取赛后开奖信息
 router.get('/results', async (req, res) => {
   try {
